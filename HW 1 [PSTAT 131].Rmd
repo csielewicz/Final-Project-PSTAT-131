@@ -156,3 +156,5 @@ corrplot(M, method = 'square', order = 'FPC', type = 'lower', diag = FALSE)
 ```
 
 **`hwy` and `cty` are positively correlated with each other, as well as `cyl` and `displ`. All others are negatively correlated with each other. These results are not all that surprising.**
+
+New Push
