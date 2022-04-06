@@ -4,6 +4,73 @@ author: "Charlotte Sielewicz"
 date: '2022-04-06'
 output: html_document
 ---
+
 # Homework 2
-## Question 1 
+
+```{r}
+library(ggplot2)
+library(tidyverse)
+library(tidymodels)
+library(corrplot)
+library(ggthemes)
+tidymodels_prefer()
+```
+
+## Question 1
+
+Your goal is to predict abalone age, which is calculated as the number of rings plus 1.5. Notice there currently is no age variable in the data set. Add age to the data set.
+
+Assess and describe the distribution of age.
+
+```{r}
+age <- abalone$rings + 1.5
+age
+Abalone <- cbind(abalone, age)
+Abalone  
+  head()
+```
+
+### Distribution ???
+
+## Question 2
+
+Split the abalone data into a training set and a testing set. Use stratified sampling. You should decide on appropriate percentages for splitting the data.
+
+*Remember that you'll need to set a seed at the beginning of the document to reproduce your results.*
+
+```{r}
+set.seed(3435)
+
+abalone_split <- initial_split(Abalone, prop = 0.80,
+                                strata = age)
+abalone_train <- training(abalone_split)
+abalone_test <- testing(abalone_split)
+```
+
 ## Question 3
+
+Using the **training** data, create a recipe predicting the outcome variable, `age`, with all other predictor variables. Note that you should not include `rings` to predict `age`. Explain why you shouldn't use `rings` to predict `age`.
+
+Steps for your recipe:
+
+1.  dummy code any categorical predictors
+
+2.  create interactions between
+
+    -   `type` and `shucked_weight`,
+
+    -   `longest_shell` and `diameter`,
+
+    -   `shucked_weight` and `shell_weight`
+
+3.  center all predictors, and
+
+4.  scale all predictors.
+
+You'll need to investigate the `tidymodels` documentation to find the appropriate step functions to use.
+
+```{r}
+abalone_recipe <- recipe(type ~ shucked_weight, longest_shell ~ diameter, shucked_weight ~ shell_weight, data = abalone_train) %>% 
+  step_dummy(all_nominal_predictors())
+abalone_recipe
+```
