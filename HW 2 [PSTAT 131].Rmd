@@ -1,0 +1,7 @@
+---
+title: "Homework 2"
+author: "Charlotte Sielewicz"
+date: '2022-04-06'
+output: html_document
+---
+# Homework 2
