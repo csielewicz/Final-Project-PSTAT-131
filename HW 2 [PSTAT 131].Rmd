@@ -5,3 +5,4 @@ date: '2022-04-06'
 output: html_document
 ---
 # Homework 2
+## Question 1
