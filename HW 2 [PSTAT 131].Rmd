@@ -7,7 +7,7 @@ output: html_document
 
 # Homework 2
 
-```{r}
+```{r include = FALSE}
 library(ggplot2)
 library(tidyverse)
 library(tidymodels)
@@ -39,7 +39,7 @@ Split the abalone data into a training set and a testing set. Use stratified sam
 *Remember that you'll need to set a seed at the beginning of the document to reproduce your results.*
 
 ```{r}
-set.seed(3435)
+set.seed(123)
 
 abalone_split <- initial_split(Abalone, prop = 0.80,
                                 strata = age)
@@ -70,7 +70,86 @@ Steps for your recipe:
 You'll need to investigate the `tidymodels` documentation to find the appropriate step functions to use.
 
 ```{r}
-abalone_recipe <- recipe(type ~ shucked_weight, longest_shell ~ diameter, shucked_weight ~ shell_weight, data = abalone_train) %>% 
-  step_dummy(all_nominal_predictors())
-abalone_recipe
+abalone_recipe <- recipe(age ~ type + longest_shell + diameter + height + whole_weight + shucked_weight + viscera_weight + shell_weight, data = abalone_train) %>% 
+  step_dummy(all_nominal_predictors()) %>%
+  step_interact(terms = ~ starts_with("type"):shucked_weight) %>% 
+  step_interact(~ longest_shell:diameter) %>% 
+  step_interact(~ shucked_weight:shell_weight)
+
+```
+
+### **Question 4**
+
+Create and store a linear regression object using the `"lm"` engine.
+
+```{r}
+lm_model <- linear_reg() %>% 
+  set_engine("lm")
+```
+
+### **Question 5**
+
+Now:
+
+1.  set up an empty workflow,
+
+2.  add the model you created in Question 4, and
+
+3.  add the recipe that you created in Question 3.
+
+Abalone_train \<- as_tibble(abalone_train)
+
+Abalone_train
+
+```{r}
+lm_wflow <- workflow() %>% 
+  add_model(lm_model) %>% 
+  add_recipe(abalone_recipe)
+```
+
+### **Question 6**
+
+Use your `fit()` object to predict the age of a hypothetical female abalone with longest_shell = 0.50, diameter = 0.10, height = 0.30, whole_weight = 4, shucked_weight = 1, viscera_weight = 2, shell_weight = 1.
+
+```{r}
+lm_fit <- fit(lm_wflow, abalone_train)
+```
+
+```{r}
+lm_fit %>% 
+  # This returns the parsnip object:
+  extract_fit_parsnip() %>% 
+  # Now tidy the linear model object:
+  tidy()
+New <- data.frame(type = "F", longest_shell = 0.50, diameter = 0.10, height = 0.30, whole_weight = 4, shucked_weight = 1, viscera_weight = 2, shell_weight = 1)
+
+abalone_train_res <- predict(lm_fit, new_data = New)
+abalone_train_res
+```
+
+## **Question 7**
+
+Now you want to assess your model's performance. To do this, use the `yardstick` package:
+
+1.  Create a metric set that includes *R^2^*, RMSE (root mean squared error), and MAE (mean absolute error).
+
+    ```{r}
+    rmse(abalone_train_res, truth = age, estimate = .pred)
+    ```
+
+2.  Use `predict()` and `bind_cols()` to create a tibble of your model's predicted values from the **training data** along with the actual observed ages (these are needed to assess your model's performance).
+
+    ```{r}
+    abalone_train_res <- predict(lm_fit, new_data = abalone_train %>% select(-age))
+    abalone_train_res <- bind_cols(abalone_train_res, abalone_train %>% select(age))
+    abalone_train_res %>% 
+      head()
+    ```
+
+3.  Finally, apply your metric set to the tibble, report the results, and interpret the *R^2^* value.
+
+```{r}
+abalone_metrics <- metric_set(rmse, rsq, mae)
+abalone_metrics(abalone_train_res, truth = age, 
+                estimate = .pred)
 ```
