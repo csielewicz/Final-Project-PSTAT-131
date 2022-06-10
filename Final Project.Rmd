@@ -1,0 +1,544 @@
+---
+title: "Final Project [PSTAT 131]"
+author: "Charlotte Sielewicz"
+date: '2022-05-25'
+output:
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE,
+                      warning = FALSE)
+```
+
+# Introduction
+
+This project will explore US airline customer satisfaction survey data. The survey includes information about customers that is uncontrollable by the airline. For example gender, age, flight distance or purpose of travel. It also includes the satisfaction level of variables that are within the airline's control. For example cleanliness, gate location or online services. Most importantly the survey information regarding overall customer satisfaction levels for their respective flight experiences. The models shown throughout this project will highlight how much a customer's satisfaction relies on variables outside of the airline's control.
+
+## Usefulness of this model
+
+It can be assumed that the purpose of the surveys handed out to customers was to make improvements and discover methods to increase the number of satisfied customers. Finding how certain variables hold more impact than others in the overall satisfaction of a customer can help US Airlines focus on certain areas to improve. The findings of this model can also determine achievable level of satisfaction as a 100% satisfaction rate is unattainable. While the models might not show that the uncontrollable variables have as high of an impact on overall satisfaction as the controllable variables, it may be noted that improvements can be made that could alter the results of the surveys towards the desirable goal.
+
+## Loading Data and Packages
+
+Passenger Satisfaction (<https://www.kaggle.com/datasets/johndddddd/customer-satisfaction>). This is from US Airline surveys.
+
+Variables:
+
+1.  `satisfaction_v2`: Airline satisfaction level (satisfied, neutral.or.dissatisfaction)
+2.  `gender`: Gender of the passengers (Female, Male)
+3.  `customer_type`: The loyalty of a customer (Loyal customer, disloyal customer)
+4.  `age`:The actual age of the passengers
+5.  `type_of_travel`: Purpose of the flight of the passengers (Personal Travel, Business Travel)
+6.  `class`: Travel class in the plane of the passengers (Business, Eco, Eco Plus)
+7.  `flight_distance`: The flight distance of this journey.
+8.  `seat_comfort`: Satisfaction level of Seat comfort (from 0-5)
+9.  `departure_arrival_time_convenient`: Satisfaction level of Departure/Arrival time (from 0-5)
+10. `food_and_drink`: Satisfaction level of Food and drink (from 0-5)
+11. `gate_location`: Satisfaction level of Gate location (from 0-5)
+12. `inflight_wifi_service`: Satisfaction level of online booking (from 0-5)
+13. `inflight_entertainment`: Satisfaction level of in-flight entertainment (from 0-5)
+14. `online_support`: Satisfaction level of online boarding (from 0-5)
+15. `ease_of_online_booking`: Satisfaction level of online booking (from 0-5)
+16. `on_board_service`: Satisfaction level of on-board service (from 0-5)
+17. `leg_room_service`: Satisfaction level of leg room service (from 0-5)
+18. `baggage_handling`: Satisfaction level of baggage handling (from 0-5)
+19. `checkin_service`: Satisfaction level of check-in service (from 0-5)
+20. `cleanliness`: Satisfaction level of Cleanliness (from 0-5)
+21. `online_boarding`: Satisfaction level of online boarding (from 0-5)
+22. `departure_delay_in_minutes`: Actual amount of minutes the departure was delayed.
+23. `avg_satisfaction`: (Added variable) The average satisfaction level among the controlled variables (0-5)
+
+```{r libraries, class.source = 'fold-hide'}
+library(tidyverse)
+library(tidymodels)
+library(ISLR)
+library(ISLR2)
+library(ggplot2)
+library(ggthemes)
+library(rpart.plot)
+library(janitor)
+library(randomForest)
+#library(xgboost)
+library(kernlab)
+library(kknn)
+
+tidymodels_prefer()
+
+set.seed(3435)
+```
+
+```{r class.source = 'fold-hide'}
+satisfaction  <-read.csv("/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/data/satisfaction_unprocessed.csv")
+```
+
+## Data Cleaning
+
+First, clean the names to ensure a consistent and easy to reference data set.
+
+```{r cleaning1}
+satisfaction <- satisfaction %>%
+  clean_names()
+
+satisfaction$satisfaction_v2 <- satisfaction$satisfaction_v2 %>%
+  make.names() # remove spaces from items in satisfaction_v2 for ease of use later,
+```
+
+Deselect `id` as it is not an important variable, and deselect `arrival_delay_in_minutes` as there are many missing values, and it is not the primary focus of this project.
+
+```{r cleaning2}
+satisfaction <- satisfaction %>%
+  select(-id, -arrival_delay_in_minutes)
+```
+
+Factor necessary variables.
+
+```{r cleaning3}
+satisfaction$satisfaction_v2 <- factor(satisfaction$satisfaction_v2, levels = c("satisfied", "neutral.or.dissatisfied"))
+
+satisfaction$customer_type <- factor(satisfaction$customer_type, levels = c("Loyal Customer","disloyal Customer"))
+
+satisfaction$gender <- factor(satisfaction$gender, levels = c("Male", "Female"))
+
+satisfaction$type_of_travel <- factor(satisfaction$type_of_travel, levels = c("Personal Travel","Business travel"))
+
+satisfaction$class <- factor(satisfaction$class, levels = c("Eco", "Eco Plus", "Business"))
+```
+
+Add a new variable `avg_satisfaction` that takes the average level of satisfaction based off of the survey.
+
+```{r cleaning4, class.source = 'fold-show'}
+satisfaction <- satisfaction %>%
+  mutate(avg_satisfaction = round((seat_comfort + departure_arrival_time_convenient + food_and_drink+ gate_location + inflight_wifi_service + inflight_entertainment + online_support + ease_of_online_booking + on_board_service + leg_room_service + baggage_handling + checkin_service + cleanliness + online_boarding)/14))
+```
+
+```{r processed_data, include = FALSE, eval = FALSE}
+write.csv(satisfaction,"/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/data/satisfaction_processed.csv", row.names = FALSE)
+```
+
+```{r load_data, include = FALSE, eval = FALSE}
+satisfaction  <-read.csv("/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/data/satisfaction_processed.csv")
+```
+
+Create a data set with the controlled variables as well as one with the uncontrolled variables.
+
+```{r}
+controlled <- satisfaction %>%
+  select(satisfaction_v2, flight_distance, age, class, gender, customer_type, type_of_travel)
+uncontrolled <- satisfaction %>%
+  select(-flight_distance, -age, -class, -gender, -customer_type, -type_of_travel)
+```
+
+## Data Split
+
+We will see in the EVA section that the `satisfaction_v2` variable is skewed towards **satisfied**. Thus, we will use stratified sampling. The data will be split with 80% in the training set and 20% in the testing set. The EDA will look at the overall results from the training set so we can pretend the observations in the testing set have not yet occured.
+
+Both the controlled and uncontrolled variables will be split at the same ratio so different models can be made for both.
+
+```{r split_controlled}
+satisfaction_split <- initial_split(controlled, prop = 0.80,
+                                strata = "satisfaction_v2") #stratify `survived`
+
+satisfaction_train <- training(satisfaction_split)
+satisfaction_test <- testing(satisfaction_split)
+```
+
+```{r splot_uncontrolled}
+uncontrolled_split <- initial_split(uncontrolled, prop = 0.80,
+                                strata = "satisfaction_v2") #stratify `survived`
+
+uncontrolled_train <- training(uncontrolled_split)
+
+uncontrolled_test <- testing(uncontrolled_split)
+```
+
+# Exploratory Data Analysis
+
+Using the training set we will conduct the exploratory data analysis. The observations in the set represent surveys taken by passengers.
+
+I predict that passenger satisfaction is heavily impacted by variables outside of the airline's control. To see this we can look at the variables `flight_distance`, `age`, `class`, `gender`, `customer_type` and `type_of_travel` and to see how they impact the overall satisfaction level of a customer.
+
+We may begin by looking at the distribution of satisfaction among customers/survey takers.
+
+```{r EVA1, class.source = 'fold-hide'}
+satisfaction_train %>% 
+  ggplot(aes(x = satisfaction_v2)) +
+  geom_histogram(bins=2, stat = 'count') +
+  theme_bw() +
+  labs(x = "Satisfaction Level")
+```
+
+We can see here that although there are overall more customers that indicated satisfaction there are a sufficient amount of customers that were "neutral or dissatisfied." This means that there is sufficient data on both sides to look into further.
+
+#### Age:
+
+Looking at age we can see that there is a higher age range for satisfied customers than for neutral or dissatisfied customers.
+
+```{r EVA2, class.source = 'fold-hide'}
+satisfaction_train %>% 
+  ggplot(aes(x = age, y = reorder(satisfaction_v2, age))) + 
+  geom_boxplot() +
+  theme_bw() +
+  labs(title = "Satisfaction Level by Age", x = "Age", y = "Satisfaction Level")
+```
+
+#### Gender:
+
+It should be noted that the distribution of males (51,117) and females (52,786) is relatively balanced. Thus, the different outcomes of satisfaction become significant.
+
+```{r EVA3, class.source = 'fold-hide'}
+ggplot(satisfaction_train, aes(satisfaction_v2)) +
+  geom_histogram(bins = 3,stat='count', color = "white") +
+  facet_wrap(~gender, scales = "fixed") +
+  labs(
+    title = "Histogram of Satisfaction Level by Gender", 
+    x = "Satisfaction Level"
+  )
+```
+
+#### Customer Type:
+
+The ratio between satisfied and neutral or dissatisfied characters is more skewed towards dissatisfied for disloyal customers than for loyal customers.
+
+```{r EVA4, class.source = 'fold-hide'}
+ggplot(satisfaction_train, aes(satisfaction_v2)) +
+  geom_histogram(stat='count', color = "white") +
+  facet_wrap(~customer_type, scales = "fixed") +
+  labs(
+    title = "Histogram of Satisfaction Level by Loyalty of Customer",
+    x = "Satisfaction Level"
+  )
+```
+
+#### Class:
+
+While class is somewhat controllable by the airline we may assume that higher classes will higher quality services. Thus, it is not surprising that the higher classes are generally more satisfied with their flight.
+
+```{r EVA5, class.source = 'fold-hide'}
+ggplot(satisfaction_train, aes(satisfaction_v2)) +
+  geom_histogram(stat='count', color = "white") +
+  facet_wrap(~class, scales = "fixed") +
+  labs(
+    title = "Histogram of Satisfaction Level by Class of Flight Ticket",
+  x = "Satisfaction Level")
+```
+
+#### Average Satisfaction for Controllable Variables:
+
+Because this model will not go into detail how individual controllable variables relate satisfaction levels we will look at the average satisfaction levels. The data shows a higher average satisfaction level generally indicates a higher overall satisfaction level. It also shows, however, how much overlap there is with higher average satisfaction and a neutral or dissatisfied overall satisfaction and vice versa. This is just one example of how the controllable variable satisfaction levels might create an accurate prediction of overall satisfaction must the overall satisfaction is also heavily impacted by the uncontrollable variables.
+
+```{r EVA6, class.source = 'fold-hide'}
+uncontrolled_train %>% 
+  ggplot(aes(x = avg_satisfaction, y = reorder(satisfaction_v2, avg_satisfaction))) + 
+  geom_boxplot() +
+  theme_bw() +
+  labs(title = "Average Satisfaction Level of Controllable Variables", x = "Age", y = "Satisfaction Level of Entire Flight")
+```
+
+#### Cleanliness & Food and Drink:
+
+In order to see how the average satisfaction levels can vary in relation to the overall satisfaction levels, we can look at the difference between how `food_and_drink` differs from `cleanliness`.
+
+It can be seen that cleanliness has a higher impact on satisfaction level than food and drink services. This may be because the expectation for food and drink remains low for airlines in general. This indicates that not all controllable variables hold a very high impact on the overall satisfaction level of a customer.
+
+```{r EVA7, class.source = 'fold-hide'}
+uncontrolled_train %>% 
+  ggplot(aes(x = cleanliness, y = reorder(food_and_drink, cleanliness), fill = satisfaction_v2)) + 
+  geom_boxplot() +
+  labs(y = "Food and Drink", x = "Cleanliness") +
+  theme_bw()
+```
+
+# Model Building
+
+### Fold the data
+
+Fold the data with 10 folds:
+
+```{r folds, source.code = 'fold-hide'}
+train_folds <- vfold_cv(satisfaction_train, v = 10)
+uncontrolled_folds <- vfold_cv(uncontrolled_train, v = 10)
+```
+
+### Create a recipe
+
+Use all of the controllable variables for this recipe
+
+```{r recipe}
+satisfaction_recipe <- 
+  recipe(formula = satisfaction_v2 ~ ., data = satisfaction_train) %>% 
+  step_novel(all_nominal_predictors()) %>% # Dealing with factor variables using step_novel
+  step_dummy(all_nominal_predictors())     # and step dummy
+```
+
+## Fitting Models
+
+All models that are fit in this project have been run and saved in order to save time. This is not shown in the html file. In this section each model will be set up using a classification mode, as the variable we are hoping to predict is a factor and not numeric, and engines that have been taught to work with each respective model. A workflow will also be created for each model using the recipe made above and newly defined model.
+
+#### Logistic Regression
+
+```{r log_reg, eval = FALSE}
+
+log_reg <- logistic_reg() %>% 
+  set_engine("glm") %>% 
+  set_mode("classification")
+
+log_wkflow <- workflow() %>% 
+  add_model(log_reg) %>% 
+  add_recipe(satisfaction_recipe)
+```
+
+```{r save_log_reg, include = FALSE, eval = FALSE}
+save(log_reg, log_wkflow, file = "/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/log.rda")
+```
+
+```{r load_log_reg, include = FALSE}
+load(file = "/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/log.rda")
+```
+
+#### Boosted Trees
+
+```{r boosted_trees, eval = FALSE}
+boost_spec <- boost_tree(trees = 5000, tree_depth = 4) %>%
+  set_engine("xgboost") %>%
+  set_mode("classification")
+
+boost_wkflow <- workflow()%>%
+  add_model(boost_spec) %>% 
+  add_recipe(satisfaction_recipe)
+```
+
+```{r save_boost, include = FALSE, eval = FALSE}
+save(boost_spec,boost_wkflow, file = "/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/boost.rda")
+```
+
+```{r load_boost, include = FALSE}
+load(file="/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/boost.rda")
+```
+
+#### K Nearest Neighbors
+
+```{r knn, eval = FALSE}
+knn_spec <- 
+  nearest_neighbor(
+    neighbors = tune(),
+    mode = "classification") %>% 
+  set_engine("kknn")
+
+knn_wkflow <- workflow() %>% 
+  add_model(knn_spec) %>% 
+  add_recipe(satisfaction_recipe)
+```
+
+```{r save_knn, include = FALSE, eval = FALSE}
+save(knn_spec, knn_wkflow, file = "/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/knn.rda")
+```
+
+```{r load_knn, include = FALSE}
+load(file = "/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/knn.rda")
+```
+
+#### Random Forest
+
+```{r rf, eval = FALSE}
+rf_spec <- rand_forest(mtry = 6) %>%
+  set_engine("randomForest", importance = TRUE) %>%
+  set_mode("classification")
+
+rf_wkflow <- workflow()%>%
+  add_model(rf_spec) %>% 
+  add_recipe(satisfaction_recipe)
+```
+
+```{r save_rf, include = FALSE, eval = FALSE}
+save(rf_spec, rf_wkflow, file = "/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/rf.rda")
+```
+
+```{r load_rf, include = FALSE}
+load(file = "/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/rf.rda")
+```
+
+## Tuning the Models
+
+In this section the models will be tuned with the folded data and using a penalty grid. Then, selcting the best model done on each fold, a new workflow will be created and a final model will be fit. This process is repeated for each model and takes quite a bit of time. Thus, each model will be saved and reloaded to save time when knitting and rerunning the models.
+
+#### Logistic Regression:
+
+```{r tune_log_reg, eval = FALSE}
+penalty_grid <- grid_regular(penalty(range = c(-5, 5)), levels = 50)
+
+tune_log <- tune_grid(
+  log_wkflow,
+  resamples = train_folds, 
+  grid = penalty_grid
+)
+
+best_penalty <- select_best(tune_log, metric = "accuracy")
+
+log_final <- finalize_workflow(log_wkflow, best_penalty)
+
+log_final_fit <- fit(log_final, data = satisfaction_train)
+```
+
+```{r save_tune_log, include = FALSE, eval = FALSE}
+save(tune_log, best_penalty, log_final,log_final_fit, file = "/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/log_tune.rda")
+```
+
+```{r load_tune_log, include = FALSE}
+load(file = "/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/log_tune.rda")
+```
+
+#### Boosted Trees Model:
+
+```{r tune_boost, eval = FALSE}
+tune_boost <- tune_grid(
+  boost_wkflow,
+  resamples = train_folds, 
+  grid = penalty_grid
+)
+
+best_penalty <- select_best(tune_boost, metric = "accuracy")
+
+boost_final <- finalize_workflow(boost_wkflow, best_penalty)
+
+boost_final_fit <- fit(boost_final, data = satisfaction_train)
+```
+
+```{r save_tune_boost, include = FALSE, eval = FALSE}
+save(tune_boost, best_penalty, boost_final, boost_final_fit, file = "/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/boost_tune.rda")
+```
+
+```{r load_tune_boost, include = FALSE}
+load(file = "/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/boost_tune.rda")
+```
+
+#### K Nearest Neighbors:
+
+```{r knn_tune, eval = FALSE}
+knn_params <- parameters(knn_spec)
+
+knn_grid <- grid_regular(knn_params, levels = 2)
+
+tune_knn <- knn_wkflow %>% 
+  tune_grid(
+    resamples = train_folds, 
+            grid = knn_grid)
+```
+
+```{r save_knn_tune, include = FALSE, eval = FALSE}
+save(knn_grid, tune_knn, file = "/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/knn_tune.rda")
+```
+
+```{r load_knn_tune, include = FALSE}
+load(file = "/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/knn_tune.rda")
+```
+
+#### Random Forest:
+
+```{r rf_tune, eval = FALSE}
+param_grid <- grid_regular(cost_complexity(range = c(-3, -1)), levels = 2)
+  
+tune_rf <- tune_grid(
+  rf_wkflow,
+  resamples = train_folds, 
+  grid = param_grid,
+  metrics = metric_set(accuracy)
+)
+
+best_penalty <- select_best(tune_rf, metric = "accuracy")
+
+rf_final <- finalize_workflow(rf_wkflow, best_penalty)
+
+rf_final_fit <- fit(rf_final, data = satisfaction_train)
+```
+
+```{r, include = FALSE, eval = FALSE}
+save(tune_rf, rf_final, rf_final_fit, file = "/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/rf_tune.rda")
+```
+
+```{r, include = FALSE}
+load(file = "/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/rf_tune.rda")
+```
+
+## Repeated Cross Validation Model Analysis
+
+Finally the models can go through the cross validation process. This included looking a the outcomes of each model and comparing them to find the best fit.
+
+#### Logistic Regression
+
+```{r class.source = 'fold-hide'}
+show_best(tune_log, metric = "accuracy")
+```
+
+#### Boosted Tree
+
+```{r class.source = 'fold-hide'}
+show_best(tune_boost, metric= 'accuracy')
+```
+
+#### K Nearest Neighbor
+
+```{r class.source = 'fold-hide'}
+show_best(tune_knn, metric = "roc_auc")
+```
+
+#### Random Forest
+
+```{r class.source = 'fold-hide'}
+show_best(tune_rf, metric = "accuracy")
+```
+
+## Final Model Building
+
+We can now create a final workflow for the best fit model and fit it to data.
+
+```{r tuned_knn_wkflow}
+knn_wkflow_tuned <- knn_wkflow %>% 
+  finalize_workflow(select_best(tune_knn, metric = "roc_auc"))
+```
+
+```{r fit_results, eval = FALSE}
+knn_results <- fit(knn_wkflow_tuned, satisfaction_train)
+```
+
+## Analysis of the Test Set
+
+```{r write_rds, class.source = 'fold-hide', include = FALSE, eval = FALSE}
+write_rds(knn_results, file = "/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/knn_results.rds")
+```
+
+```{r class.source = 'fold-hide', include = FALSE}
+knn_results <- read_rds("/Users/charlottesielewicz/Documents/UCSB/2022-Spring Quarter/PSTAT 131/Final Project/R_scripts/knn_results.rds")
+```
+
+Now, looking that roc_curve for the finalized model we can see that the model performs well.
+
+```{r class.source = 'fold-hide'}
+augment(knn_results, new_data = satisfaction_test) %>%
+  roc_curve(satisfaction_v2, .pred_satisfied) %>%
+  autoplot()
+```
+
+We may also see that there is a higher accuracy level indicating a relatively well fit model.
+
+```{r class.source = 'fold-hide'}
+knn_metrics <- metric_set(accuracy)
+knn_train_res <- predict(knn_results, new_data = satisfaction_test %>% select(-satisfaction_v2))
+knn_train_res <- bind_cols(knn_train_res, satisfaction_test %>% select(satisfaction_v2))
+
+knn_metrics(knn_train_res, truth = satisfaction_v2, 
+                estimate = .pred_class)
+```
+
+# Conclusion
+
+These four models show how well the degree of customer satisfaction can be predicted based on variables outside of the airline's control; indicating the importance of the variables used to create the model hold.
+
+The accuracy levels for all of the models were surprisingly high considering my initial hypothesis. Overall the k nearest neighbors model returned the highest mean with the lowest standard deviation. Thus, the highest prediction accuracy can be found using this model. This landed at 0.824 accuracy when predicting observations in the testing set.
+
+It would be interesting to look into this data further to see how the accuracy levels change for the same models fit to the controlled variable data sets. This would require more time to fit the models again. I would predict that the models would be more accurate.
+
+The information found by this model could be used to indicate how US Airlines could cater more successfully to different groups - a seemingly uncontrollable variable. For example: To different ages, classes, or new customers. This could be a more cost efficient approach towards achieving the highest level of customer satisfaction than an effort to improve some of the controllable variables that may be expensive, such as, increasing leg room or seat comfort.
